@@ -1,20 +1,10 @@
 import sys
+import asyncio
 
 if sys.platform == "win32":
     import os
-    # This prevents certain libraries from initializing COM in a way 
-    # that breaks Bleak/WinRT
     os.environ["PYTHONNET_INITIALIZE"] = "0"
-
-    import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    try:
-        from bleak.backends.winrt.util import allow_sta
-        allow_sta()
-    except ImportError:
-        pass
-else:
-    import asyncio
 
 import threading
 from imuclient import IMUClient
