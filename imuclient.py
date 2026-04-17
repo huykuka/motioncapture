@@ -22,15 +22,28 @@ class IMUClient:
         self._client = None
         self._imu_handle = None
         self._cmd_handle = None
-        self.file = open("imu_data.csv", "w", newline="")
-        self.writer = csv.writer(self.file)
-        self.writer.writerow(["pc_time", "arduino_time",
-                               "ax", "ay", "az", "gx", "gy", "gz"])
+        self.file = None
+        self.writer = None
 
         # Private event loop + thread for BLE
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+
+    def open_session(self, session_dir):
+        if self.file:
+            self.file.close()
+        self.file = open(session_dir / "imu_data.csv", "w", newline="")
+        self.writer = csv.writer(self.file)
+        self.writer.writerow(["pc_time", "arduino_time",
+                               "ax", "ay", "az", "gx", "gy", "gz"])
+
+    def close_session(self):
+        if self.file:
+            self.file.flush()
+            self.file.close()
+            self.file = None
+            self.writer = None
 
     # ------------------------------------------------------------------
     # Background thread
@@ -55,7 +68,7 @@ class IMUClient:
     # ------------------------------------------------------------------
 
     def handler(self, sender, data):
-        if not self.collecting:
+        if not self.collecting or self.writer is None:
             return
         pc_time = time.perf_counter()
         timestamp, ax, ay, az, gx, gy, gz = struct.unpack("I6f", data)
@@ -174,9 +187,7 @@ class IMUClient:
 
     async def stop(self):
         self.collecting = False
+        self.close_session()
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._submit(self._disconnect_async()))
         self._loop.call_soon_threadsafe(self._loop.stop)
-        self.file.flush()
-        self.file.close()
-        self.file.close()

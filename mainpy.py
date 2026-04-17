@@ -8,8 +8,12 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 import threading
+from datetime import datetime
+from pathlib import Path
 from imuclient import IMUClient
 from cameraclient import CameraClient
+
+recording_dir = Path("recording")
 
 imu = IMUClient()
 cam = CameraClient()
@@ -45,7 +49,11 @@ async def main():
             cmd = cmd.strip().lower()
 
             if cmd == "start":
-                print("SYSTEM START")
+                session_dir = recording_dir / datetime.now().strftime("%Y%m%d_%H%M%S")
+                session_dir.mkdir(parents=True, exist_ok=True)
+                print(f"SESSION {session_dir}")
+                imu.open_session(session_dir)
+                cam.open_session(session_dir)
                 await imu.send_start()
                 cam.start()
 
