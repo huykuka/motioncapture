@@ -1,8 +1,9 @@
 import sys
+import os
 import asyncio
+import signal
 
 if sys.platform == "win32":
-    import os
     os.environ["PYTHONNET_INITIALIZE"] = "0"
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -13,42 +14,60 @@ from cameraclient import CameraClient
 imu = IMUClient()
 cam = CameraClient()
 
+# Hard kill on second Ctrl+C
+signal.signal(signal.SIGINT, lambda *_: os._exit(1))
+
+
+async def shutdown():
+    """Stop data collection, disconnect BLE, shut down camera."""
+    print("\nShutting down...")
+    try:
+        await imu.send_stop()
+    except Exception:
+        pass
+    try:
+        await imu.stop()
+    except Exception:
+        pass
+
+
 async def main():
+    cam_thread = threading.Thread(target=cam.run)
+    cam_thread.start()
 
     await imu.start()
 
     print("READY (type start / stop / exit)")
 
-    # 🔥 chạy camera thread 1 lần duy nhất
-    cam_thread = threading.Thread(target=cam.run)
-    cam_thread.start()
+    try:
+        while True:
+            cmd = await asyncio.get_event_loop().run_in_executor(None, input)
+            cmd = cmd.strip().lower()
 
-    while True:
+            if cmd == "start":
+                print("SYSTEM START")
+                await imu.send_start()
+                cam.start()
 
-        cmd = input().lower()
+            elif cmd == "stop":
+                print("SYSTEM STOP")
+                await imu.send_stop()
+                cam.stop()
 
-        if cmd == "start":
+            elif cmd == "exit":
+                break
 
-            print("SYSTEM START")
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        try:
+            await asyncio.wait_for(shutdown(), timeout=5)
+        except (asyncio.TimeoutError, Exception):
+            pass
+        cam.shutdown()
+        cam_thread.join(timeout=3)
+        print("Bye")
+        os._exit(0)
 
-            await imu.send_start()
-            cam.start()
-
-        elif cmd == "stop":
-
-            print("SYSTEM STOP")
-
-            await imu.send_stop()
-            cam.stop()
-
-        elif cmd == "exit":
-
-            print("SYSTEM EXIT")
-
-            await imu.stop()
-            cam.shutdown()
-
-            cam_thread.join()
-            break
 
 asyncio.run(main())

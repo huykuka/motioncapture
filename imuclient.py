@@ -4,7 +4,6 @@ import struct
 import csv
 import time
 import threading
-import concurrent.futures
 
 DEVICE_NAME = "Nano33BLE"
 ADDRESS = "FB:5E:F5:A6:04:CB"  # Fallback address
@@ -46,10 +45,10 @@ class IMUClient:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
-    def _submit(self, coro):
+    def _submit(self, coro, timeout=120):
         """Schedule a coroutine on the BLE thread and block until done."""
         fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return fut.result()  # re-raises exceptions on the calling thread
+        return fut.result(timeout=timeout)
 
     # ------------------------------------------------------------------
     # Notification handler (called on BLE thread)
@@ -102,18 +101,15 @@ class IMUClient:
                 await client.connect()
 
                 if not client.is_connected:
-                    print("  not connected after connect()")
-                    raise RuntimeError("not connected")
+                    raise RuntimeError("not connected after connect()")
 
                 imu_char = cmd_char = None
                 for svc in client.services:
                     for ch in svc.characteristics:
-                        print(f"    {ch.uuid}  handle={ch.handle}  props={ch.properties}")
                         if "notify" in ch.properties and imu_char is None:
                             imu_char = ch
                         elif "write" in ch.properties and cmd_char is None:
                             cmd_char = ch
-                print(f"  imu_char={'found' if imu_char else 'MISSING'}  cmd_char={'found' if cmd_char else 'MISSING'}")
 
                 if imu_char is None or cmd_char is None:
                     raise RuntimeError("characteristics not found")
@@ -146,14 +142,16 @@ class IMUClient:
         raise RuntimeError("Failed to connect to IMU after 3 attempts")
 
     async def _write_cmd(self, payload: bytes):
-        from bleak import BleakClient  # already imported but safe to repeat
         if self._client is None or not self._client.is_connected:
             raise RuntimeError("IMU not connected")
         await self._client.write_gatt_char(self._cmd_handle, payload)
 
     async def _disconnect_async(self):
         if self._client:
-            await self._client.disconnect()
+            try:
+                await asyncio.wait_for(self._client.disconnect(), timeout=10)
+            except Exception:
+                pass
             self._client = None
 
     # ------------------------------------------------------------------
@@ -175,7 +173,10 @@ class IMUClient:
         await loop.run_in_executor(None, lambda: self._submit(self._write_cmd(b"STOP")))
 
     async def stop(self):
+        self.collecting = False
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, lambda: self._submit(self._disconnect_async()))
         self._loop.call_soon_threadsafe(self._loop.stop)
+        self.file.flush()
+        self.file.close()
         self.file.close()
