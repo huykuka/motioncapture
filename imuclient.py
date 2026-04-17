@@ -2,9 +2,10 @@ import asyncio
 import struct
 import csv
 import time
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 
-ADDRESS = "FB:5E:F5:A6:04:CB"  # sửa đúng address
+DEVICE_NAME = "Nano33BLE"  # Device name (more stable than address)
+ADDRESS = "FB:5E:F5:A6:04:CB"  # Fallback address
 
 IMU_UUID = "19B10001-E8F2-537E-4F6C-D104768A1214"
 CMD_UUID = "19B10002-E8F2-537E-4F6C-D104768A1214"
@@ -35,8 +36,32 @@ class IMUClient:
         ])
 
     async def start(self):
-
-        self.client = BleakClient(ADDRESS)
+        # Scan for BLE devices
+        print("Scanning for BLE devices...")
+        devices = await BleakScanner.discover()
+        
+        device = None
+        
+        # First, try to match by device name (more stable)
+        for d in devices:
+            print(f"Found: {d.address} - {d.name}")
+            if d.name == DEVICE_NAME:
+                device = d
+                break
+        
+        # Fallback: try to match by address
+        if device is None:
+            for d in devices:
+                if d.address == ADDRESS:
+                    device = d
+                    break
+        
+        if device is None:
+            print(f"Device '{DEVICE_NAME}' not found!")
+            return
+        
+        print(f"Connecting to {device.name} ({device.address})...")
+        self.client = BleakClient(device)
         await self.client.connect()
 
         print("IMU connected")
